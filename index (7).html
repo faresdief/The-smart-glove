@@ -1,0 +1,1423 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>SignGlove Translator | Intel ISEF</title>
+<meta name="description" content="A pure-software sign language translation glove simulator: interactive 3D glove (Three.js), 16x2 LCD output and Web Speech API voice output. 100% client-side.">
+<meta name="theme-color" content="#04060c">
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700;900&family=Share+Tech+Mono&family=VT323&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+  tailwind.config = {
+    theme: {
+      extend: {
+        colors: {
+          neon: { cyan: '#22e5ff', pink: '#ff2e9a', lime: '#b6ff3b', amber: '#ffb020' },
+          ink: { 950: '#04060c', 900: '#070b14', 800: '#0b1220', 700: '#101a2e' }
+        },
+        fontFamily: {
+          display: ['Orbitron', 'Inter', 'sans-serif'],
+          mono: ['"Share Tech Mono"', 'ui-monospace', 'SFMono-Regular', 'Menlo', 'monospace'],
+          sans: ['Inter', 'system-ui', 'sans-serif']
+        }
+      }
+    }
+  };
+</script>
+
+<style>
+  :root{
+    --cyan:#22e5ff; --pink:#ff2e9a; --lime:#b6ff3b; --amber:#ffb020;
+    --line:rgba(34,229,255,.22); --ink:#04060c;
+  }
+  *{ -webkit-tap-highlight-color: transparent; }
+  html{ background:var(--ink); }
+  body{ margin:0; min-height:100vh; background:var(--ink); color:#d7e6f5; font-family:Inter,system-ui,sans-serif; overflow-x:hidden; }
+  .is-hidden{ display:none !important; }
+  .sr-only{ position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0 0 0 0); white-space:nowrap; }
+
+  /* ---------- Background ---------- */
+  .bg-grid{
+    position:fixed; inset:0; z-index:-2;
+    background:
+      radial-gradient(1200px 600px at 85% -10%, rgba(255,46,154,.13), transparent 60%),
+      radial-gradient(900px 600px at -10% 10%, rgba(34,229,255,.13), transparent 60%),
+      linear-gradient(rgba(34,229,255,.045) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(34,229,255,.045) 1px, transparent 1px);
+    background-size:auto, auto, 42px 42px, 42px 42px;
+  }
+  .scanlines{
+    position:fixed; inset:0; z-index:50; pointer-events:none;
+    background:repeating-linear-gradient(to bottom, rgba(255,255,255,.022) 0, rgba(255,255,255,.022) 1px, transparent 1px, transparent 3px);
+  }
+
+  /* ---------- Panels / buttons ---------- */
+  .panel{
+    position:relative;
+    background:linear-gradient(180deg, rgba(14,22,38,.80), rgba(8,13,24,.86));
+    border:1px solid var(--line); border-radius:14px; backdrop-filter:blur(10px);
+    box-shadow:0 0 0 1px rgba(0,0,0,.4) inset, 0 20px 50px -20px rgba(0,0,0,.8), 0 0 30px -12px rgba(34,229,255,.35);
+  }
+  .panel::before,.panel::after{ content:''; position:absolute; width:16px; height:16px; pointer-events:none; border:2px solid var(--cyan); opacity:.85; z-index:5; }
+  .panel::before{ top:-1px; left:-1px; border-right:0; border-bottom:0; border-top-left-radius:14px; }
+  .panel::after{ bottom:-1px; right:-1px; border-left:0; border-top:0; border-bottom-right-radius:14px; }
+
+  .btn{
+    font-family:'Share Tech Mono',monospace; letter-spacing:.06em; text-transform:uppercase; font-size:12px;
+    padding:.5rem .8rem; min-height:38px; border:1px solid var(--line); border-radius:8px;
+    background:rgba(34,229,255,.06); color:#bdf4ff; cursor:pointer; transition:all .15s;
+    display:inline-flex; align-items:center; gap:.45rem;
+  }
+  .btn:hover{ background:rgba(34,229,255,.16); border-color:var(--cyan); box-shadow:0 0 18px -4px var(--cyan); }
+  .btn:active{ transform:translateY(1px); }
+  .btn:focus-visible,.dict-item:focus-visible,.tab:focus-visible{ outline:2px solid #fff; outline-offset:2px; }
+  .btn[aria-pressed="false"].toggle{ color:#ff9cc6; border-color:rgba(255,46,154,.45); background:rgba(255,46,154,.08); }
+  .btn.primary{ background:linear-gradient(180deg, rgba(34,229,255,.28), rgba(34,229,255,.12)); border-color:var(--cyan); color:#fff; }
+
+  .chip{
+    font-family:'Share Tech Mono',monospace; font-size:11px; letter-spacing:.08em; padding:.25rem .6rem; border-radius:999px;
+    border:1px solid var(--line); background:rgba(34,229,255,.07); color:#aeeaff; display:inline-flex; align-items:center; gap:.4rem; white-space:nowrap;
+  }
+  .chip.ok{ color:#c9ff7a; border-color:rgba(182,255,59,.4); background:rgba(182,255,59,.08); }
+  .chip.warn{ color:#ffd27a; border-color:rgba(255,176,32,.4); background:rgba(255,176,32,.08); }
+  .chip.bad{ color:#ff9cc6; border-color:rgba(255,46,154,.45); background:rgba(255,46,154,.10); }
+  .dotp{ width:7px; height:7px; border-radius:50%; background:currentColor; box-shadow:0 0 8px currentColor; flex:none; }
+
+  .input{
+    width:100%; background:#08111f; border:1px solid var(--line); border-radius:8px; color:#d7e6f5;
+    padding:.5rem .65rem; font:13px 'Share Tech Mono',monospace; min-height:38px;
+  }
+  .input:focus{ outline:2px solid var(--cyan); outline-offset:1px; }
+  input[type=range]{ accent-color:#22e5ff; width:100%; }
+  .scroll{ scrollbar-width:thin; scrollbar-color:#1f4a5c transparent; }
+
+  /* ---------- Viewport / HUD ---------- */
+  #viewport{
+    background:radial-gradient(600px 400px at 50% 45%, rgba(34,229,255,.10), transparent 70%), #050912;
+    touch-action:none;
+  }
+  .hud{ background:rgba(4,8,16,.62); border:1px solid var(--line); border-radius:10px; padding:.5rem .7rem; backdrop-filter:blur(6px); }
+  .hud-title{ font-family:Orbitron,sans-serif; font-size:9px; letter-spacing:.22em; color:#7fe9ff; opacity:.9; margin-bottom:.4rem; }
+  .led-col{ display:flex; flex-direction:column; align-items:center; gap:3px; font:10px 'Share Tech Mono',monospace; color:#6f86a3; }
+  .led{ width:10px; height:24px; border-radius:3px; background:#0b1a2c; border:1px solid rgba(34,229,255,.25); transition:all .15s; }
+  .led.on{ background:linear-gradient(180deg,#ff6cb8,var(--pink)); border-color:#ff8cc9; box-shadow:0 0 12px var(--pink); }
+
+  .flabel{
+    position:absolute; left:0; top:0; pointer-events:auto; width:26px; height:26px; border-radius:50%;
+    display:grid; place-items:center; font:600 11px 'Share Tech Mono',monospace; color:#bff6ff;
+    background:rgba(4,12,24,.80); border:1.5px solid var(--cyan); box-shadow:0 0 12px -2px var(--cyan);
+    cursor:pointer; transition:background .15s, border-color .15s, color .15s, box-shadow .15s; will-change:transform; padding:0;
+  }
+  .flabel.on{ border-color:var(--pink); color:#fff; background:rgba(255,46,154,.38); box-shadow:0 0 14px var(--pink); }
+  .flabel:focus-visible{ outline:2px solid #fff; outline-offset:2px; }
+  @media (min-width:640px){ .flabel{ width:30px; height:30px; font-size:12px; } }
+  .static-row{ display:flex; gap:10px; align-items:flex-end; justify-content:center; padding-bottom:70px; }
+  .static-row .flabel{ position:static; transform:none !important; }
+
+  #tip{
+    position:absolute; z-index:8; pointer-events:none; font:11px 'Share Tech Mono',monospace; letter-spacing:.05em;
+    padding:.3rem .55rem; border-radius:6px; background:rgba(4,10,20,.92); border:1px solid var(--cyan); color:#cdf7ff; white-space:nowrap;
+  }
+
+  .eq{ display:inline-flex; gap:2px; align-items:flex-end; height:12px; }
+  .eq i{ display:block; width:3px; height:4px; background:currentColor; animation:eq .7s ease-in-out infinite; }
+  .eq i:nth-child(2){ animation-delay:.12s; } .eq i:nth-child(3){ animation-delay:.24s; } .eq i:nth-child(4){ animation-delay:.36s; }
+  @keyframes eq{ 0%,100%{ height:3px; } 50%{ height:12px; } }
+
+  /* ---------- LCD ---------- */
+  .lcd-bezel{
+    position:relative; border-radius:14px; padding:20px;
+    background:linear-gradient(145deg,#1b2230,#0c111b); border:1px solid #2a3550;
+    box-shadow:inset 0 2px 0 rgba(255,255,255,.05), inset 0 -8px 20px rgba(0,0,0,.6), 0 12px 30px -10px #000;
+  }
+  .lcd-screw{
+    position:absolute; width:11px; height:11px; border-radius:50%;
+    background:radial-gradient(circle at 35% 30%, #9aa5bb, #2b3346 70%); box-shadow:inset 0 0 0 1px rgba(0,0,0,.6);
+  }
+  .lcd-screw::after{ content:''; position:absolute; left:2px; right:2px; top:50%; height:1.5px; background:#0b0f18; transform:translateY(-50%) rotate(35deg); }
+  .lcd{
+    --bg:#a4d13f; --bg2:#82b02a; --fg:#13220a; --ghost:rgba(20,35,10,.075); --tglow:rgba(20,35,10,.35); --glow:rgba(182,255,59,.35);
+    position:relative; padding:14px 14px; border-radius:6px; overflow:hidden;
+    background:linear-gradient(180deg,var(--bg),var(--bg2));
+    box-shadow:inset 0 0 0 2px rgba(0,0,0,.55), inset 0 6px 16px rgba(0,0,0,.35), 0 0 40px -6px var(--glow);
+  }
+  .lcd[data-theme="blue"]{ --bg:#2f74ff; --bg2:#1a45c9; --fg:#eaf4ff; --ghost:rgba(0,10,70,.28); --tglow:rgba(190,225,255,.7); --glow:rgba(70,130,255,.55); }
+  .lcd::after{ content:''; position:absolute; inset:0; pointer-events:none; background:linear-gradient(115deg, rgba(255,255,255,.16) 0%, rgba(255,255,255,0) 38%); }
+  .lcd.flash{ animation:lcdflash .35s ease-out; }
+  @keyframes lcdflash{ 0%{ filter:brightness(1.35); } 100%{ filter:brightness(1); } }
+  .lcd-row{ display:grid; grid-template-columns:repeat(16, minmax(0,1fr)); gap:3px; }
+  .lcd-row + .lcd-row{ margin-top:6px; }
+  .lcd-cell{
+    position:relative; display:flex; align-items:center; justify-content:center; height:1.25em;
+    font-family:'VT323','Courier New',monospace; font-size:clamp(20px, 4.8vw, 40px); line-height:1; color:var(--fg);
+    background:var(--ghost); border-radius:2px; text-shadow:0 0 1px var(--fg), 0 0 7px var(--tglow); overflow:hidden;
+  }
+  .lcd-cell::after{
+    content:''; position:absolute; inset:0; pointer-events:none; mix-blend-mode:multiply;
+    background-image:linear-gradient(rgba(0,0,0,.10) 1px, transparent 1px), linear-gradient(90deg, rgba(0,0,0,.10) 1px, transparent 1px);
+    background-size:3px 3px;
+  }
+  .lcd-cell.cursor{ animation:blink 1s steps(1,end) infinite; background:var(--fg); }
+  @keyframes blink{ 50%{ background:var(--ghost); } }
+
+  /* ---------- Sidebar ---------- */
+  .tab{
+    flex:1; padding:.85rem .4rem; font:700 11px Orbitron,sans-serif; letter-spacing:.14em; text-transform:uppercase;
+    color:#6f86a3; border:0; border-bottom:2px solid transparent; background:transparent; cursor:pointer; transition:all .15s;
+  }
+  .tab:hover{ color:#bdf4ff; }
+  .tab[aria-selected="true"]{ color:var(--cyan); border-bottom-color:var(--cyan); background:rgba(34,229,255,.06); }
+  .tabpanel{ display:none; flex-direction:column; min-height:0; flex:1; }
+  .tabpanel.active{ display:flex; }
+
+  .dict-item{
+    width:100%; display:flex; align-items:center; gap:.7rem; padding:.55rem .65rem; text-align:left; cursor:pointer; color:inherit;
+    border:1px solid rgba(34,229,255,.14); background:rgba(10,18,32,.6); border-radius:10px; transition:all .15s;
+  }
+  .dict-item:hover{ border-color:var(--cyan); background:rgba(34,229,255,.08); }
+  .dict-item.is-active{ border-color:var(--lime); background:rgba(182,255,59,.10); box-shadow:0 0 22px -8px var(--lime); }
+  .pat{ display:flex; gap:3px; flex:none; }
+  .pdot{
+    width:17px; height:17px; border-radius:4px; display:grid; place-items:center; font:600 9px 'Share Tech Mono',monospace;
+    color:#59708d; background:#0a1424; border:1px solid rgba(34,229,255,.2);
+  }
+  .pdot.on{ background:var(--pink); color:#12020a; border-color:#ff8cc9; box-shadow:0 0 8px rgba(255,46,154,.7); }
+
+  .log-row{ display:flex; align-items:center; gap:.7rem; padding:.45rem .6rem; border-bottom:1px solid rgba(34,229,255,.1); font:12px 'Share Tech Mono',monospace; }
+  .log-row .t{ color:#6f86a3; } .log-row b{ color:#fff; font-weight:600; flex:1; } .log-row .c{ color:var(--pink); }
+
+  .field{ display:flex; flex-direction:column; gap:.3rem; }
+  .field > label{ font:10px Orbitron,sans-serif; letter-spacing:.18em; color:#7fe9ff; text-transform:uppercase; }
+  .stat{ display:flex; justify-content:space-between; gap:1rem; padding:.35rem 0; border-bottom:1px dashed rgba(34,229,255,.14); font:12px 'Share Tech Mono',monospace; color:#9fb4cc; }
+  .stat b{ color:#fff; font-weight:600; }
+  .step{ display:flex; gap:.7rem; font-size:13px; color:#b9c9dc; line-height:1.45; }
+  .step .n{ flex:none; width:22px; height:22px; border-radius:6px; display:grid; place-items:center; font:700 11px Orbitron,sans-serif; background:rgba(34,229,255,.12); color:var(--cyan); border:1px solid var(--line); }
+
+  #toasts{ position:fixed; left:50%; bottom:20px; transform:translateX(-50%); z-index:60; display:flex; flex-direction:column; gap:8px; align-items:center; pointer-events:none; width:max-content; max-width:92vw; }
+  .toast{ background:rgba(6,14,26,.96); border:1px solid var(--cyan); color:#d9f8ff; padding:.55rem .9rem; border-radius:10px; font:12px 'Share Tech Mono',monospace; box-shadow:0 10px 30px -10px #000, 0 0 22px -6px var(--cyan); animation:toastIn .25s ease both; }
+  .toast.ok{ border-color:var(--lime); box-shadow:0 10px 30px -10px #000, 0 0 22px -6px var(--lime); color:#e6ffc0; }
+  @keyframes toastIn{ from{ opacity:0; transform:translateY(8px); } to{ opacity:1; transform:none; } }
+
+  @media (prefers-reduced-motion: reduce){
+    *{ animation-duration:.01ms !important; animation-iteration-count:1 !important; transition-duration:.01ms !important; }
+  }
+</style>
+</head>
+
+<body>
+<div class="bg-grid" aria-hidden="true"></div>
+<div class="scanlines" aria-hidden="true"></div>
+<div id="srLive" class="sr-only" aria-live="polite"></div>
+<noscript><p style="padding:2rem;color:#fff">This application needs JavaScript enabled.</p></noscript>
+
+<!-- ======================= HEADER ======================= -->
+<header class="max-w-[1500px] mx-auto px-4 pt-5 pb-3 flex flex-wrap items-center justify-between gap-3">
+  <div class="flex items-center gap-3">
+    <div class="grid place-items-center w-12 h-12 rounded-xl border border-[rgba(34,229,255,.3)] bg-[rgba(34,229,255,.08)] shadow-[0_0_24px_-6px_#22e5ff]">
+      <svg viewBox="0 0 48 48" width="30" height="30" fill="none" stroke="#22e5ff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M14 26V12a3 3 0 0 1 6 0v10M20 22V8a3 3 0 0 1 6 0v14M26 22V10a3 3 0 0 1 6 0v14M32 24v-8a3 3 0 0 1 6 0v14c0 8-6 14-14 14h-3c-5 0-8-3-11-7l-6-9a3 3 0 0 1 5-3l5 6"/>
+      </svg>
+    </div>
+    <div>
+      <h1 class="font-display font-black text-xl sm:text-2xl tracking-[.12em] text-white leading-tight">SIGN<span class="text-neon-cyan">GLOVE</span> <span class="text-slate-400 font-bold text-base sm:text-lg tracking-[.2em]">TRANSLATOR</span></h1>
+      <p class="text-[11px] sm:text-xs font-mono text-slate-400 tracking-wide">Pure-software sign language &rarr; text &rarr; speech &middot; Intel ISEF project</p>
+    </div>
+  </div>
+  <div class="flex flex-wrap items-center gap-2">
+    <span class="chip ok"><span class="dotp"></span>100% CLIENT-SIDE</span>
+    <span class="chip">THREE.JS &middot; WEBGL</span>
+    <span class="chip" id="chipSpeech"><span class="dotp"></span>WEB SPEECH API</span>
+  </div>
+</header>
+
+<!-- ======================= MAIN ======================= -->
+<main class="max-w-[1500px] mx-auto px-4 pb-8 grid grid-cols-1 lg:grid-cols-12 gap-4 items-start">
+
+  <!-- LEFT: viewport + LCD -->
+  <section class="lg:col-span-8 flex flex-col gap-4 min-w-0">
+
+    <!-- 3D VIEWPORT -->
+    <div id="viewport" class="panel overflow-hidden h-[440px] sm:h-[520px] lg:h-[580px] select-none">
+      <canvas id="gl" class="absolute inset-0 w-full h-full block" aria-label="Interactive 3D glove. Tap a finger to bend it."></canvas>
+      <div id="labels" class="absolute inset-0 pointer-events-none"></div>
+
+      <!-- HUD: sensor array -->
+      <div class="hud absolute top-3 left-3 z-[6]">
+        <div class="hud-title">FLEX-SENSOR ARRAY</div>
+        <div class="flex items-end gap-2.5" id="hudLeds"></div>
+        <div id="hudCode" class="mt-1.5 font-mono text-xs text-neon-cyan tracking-[.25em]">0 0 0 0 0</div>
+      </div>
+
+      <!-- HUD: status -->
+      <div class="absolute top-3 right-3 z-[6] flex flex-col items-end gap-2 max-w-[52%]">
+        <span id="hudStatus" class="chip max-w-full truncate"><span class="dotp"></span>IDLE</span>
+        <span id="hudSpeaking" class="chip ok is-hidden"><span class="eq" aria-hidden="true"><i></i><i></i><i></i><i></i></span>SPEAKING</span>
+      </div>
+
+      <!-- HUD: hint -->
+      <div class="absolute bottom-3 left-3 right-3 z-[6] flex items-end justify-between gap-3 pointer-events-none">
+        <p class="font-mono text-[10px] sm:text-[11px] text-slate-400 leading-snug bg-[rgba(4,8,16,.55)] rounded-md px-2 py-1">
+          TAP FINGER = bend / extend &middot; TAP PALM = repeat &middot; DRAG = orbit &middot; PINCH / SCROLL = zoom &middot; KEYS 1&ndash;5
+        </p>
+      </div>
+
+      <div id="tip" class="is-hidden"></div>
+
+      <div id="glFallback" class="is-hidden absolute inset-0 z-[4] grid place-items-center text-center p-6">
+        <div class="max-w-sm font-mono text-sm text-amber-200">
+          <p class="font-display text-base mb-2 text-neon-amber">WebGL unavailable</p>
+          <p>Your browser could not start WebGL, so the 3D glove cannot render. The finger buttons below still drive the full translator (LCD + voice).</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- LCD MODULE -->
+    <div class="panel p-4 sm:p-5">
+      <div class="flex flex-wrap items-center justify-between gap-2 mb-3">
+        <h2 class="font-display text-[12px] sm:text-sm tracking-[.2em] text-neon-cyan">OUTPUT MODULE &middot; 16&times;2 LCD</h2>
+        <button id="btnTheme" class="btn" type="button" aria-label="Switch LCD backlight colour">Backlight: Green</button>
+      </div>
+
+      <div class="lcd-bezel">
+        <i class="lcd-screw" style="top:7px;left:7px"></i><i class="lcd-screw" style="top:7px;right:7px"></i>
+        <i class="lcd-screw" style="bottom:7px;left:7px"></i><i class="lcd-screw" style="bottom:7px;right:7px"></i>
+        <div id="lcd" class="lcd" data-theme="green" role="img" aria-label="16 by 2 character LCD display showing the translation"></div>
+        <div class="flex justify-between mt-3 font-mono text-[9px] sm:text-[10px] text-slate-500 tracking-wider">
+          <span>HD44780-COMPATIBLE &middot; 5&times;8 DOT CELLS</span>
+          <span class="hidden sm:inline">VSS VDD V0 RS RW E D0&ndash;D7 A K</span>
+        </div>
+      </div>
+
+      <p id="hint" class="mt-3 text-[13px] text-slate-300 font-mono leading-relaxed min-h-[2.6em]"></p>
+
+      <div class="flex flex-wrap gap-2 mt-3">
+        <button id="btnReset" class="btn" type="button">&#8634; Reset glove</button>
+        <button id="btnRepeat" class="btn primary" type="button">&#9654; Repeat word</button>
+        <button id="btnView" class="btn" type="button">&#9678; Reset view</button>
+        <button id="btnVoice" class="btn toggle" type="button" aria-pressed="true">Voice: ON</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- RIGHT: sidebar -->
+  <aside class="lg:col-span-4 min-w-0">
+    <div class="panel flex flex-col lg:sticky lg:top-4 lg:max-h-[calc(100vh-2rem)] overflow-hidden">
+      <div role="tablist" class="flex border-b border-[rgba(34,229,255,.18)]" aria-label="Sidebar sections">
+        <button class="tab" role="tab" id="tab-dict" data-tab="dict" aria-selected="true" aria-controls="panel-dict" type="button">Dictionary</button>
+        <button class="tab" role="tab" id="tab-log"  data-tab="log"  aria-selected="false" aria-controls="panel-log" type="button">Log</button>
+        <button class="tab" role="tab" id="tab-sys"  data-tab="sys"  aria-selected="false" aria-controls="panel-sys" type="button">System</button>
+      </div>
+
+      <!-- DICTIONARY -->
+      <section id="panel-dict" class="tabpanel active p-4 gap-3" role="tabpanel" aria-labelledby="tab-dict">
+        <p class="text-[12.5px] text-slate-300 leading-relaxed">
+          Bend fingers on the glove to build a <b class="text-white">5-bit gesture code</b> (<span class="text-neon-pink font-mono">1</span> = bent / active, <span class="text-neon-cyan font-mono">0</span> = extended). Click a word to preview its sign.
+        </p>
+        <input id="dictFilter" class="input" type="search" placeholder="Filter words, categories, fingers…" aria-label="Filter dictionary">
+
+        <div class="flex items-center justify-between gap-2 flex-wrap">
+          <button id="btnPractice" class="btn" type="button" aria-pressed="false">&#9733; Practice mode</button>
+          <span class="font-mono text-[11px] text-slate-500"><span id="dictCount">0</span> signs &middot; order T I M R P</span>
+        </div>
+
+        <div id="practiceBox" class="is-hidden rounded-lg border border-[rgba(255,46,154,.45)] bg-[rgba(255,46,154,.07)] p-3">
+          <div class="flex items-center justify-between gap-2">
+            <span class="font-display text-[10px] tracking-[.2em] text-neon-pink">PRACTICE</span>
+            <span class="font-mono text-xs text-slate-300">Score: <b id="practiceScore" class="text-white">0</b></span>
+          </div>
+          <p class="mt-1.5 text-sm text-white">Make the sign for: <b id="practiceTarget" class="font-display tracking-wide text-neon-lime"></b></p>
+          <div id="practiceHint" class="mt-2 is-hidden"></div>
+          <div class="flex gap-2 mt-2">
+            <button id="btnHint" class="btn" type="button">Hint</button>
+            <button id="btnSkip" class="btn" type="button">Skip</button>
+          </div>
+        </div>
+
+        <ul id="dictList" class="relative list-none m-0 p-0 flex flex-col gap-2 overflow-y-auto scroll max-h-[58vh] lg:max-h-none lg:flex-1 min-h-0 pr-1"></ul>
+      </section>
+
+      <!-- LOG -->
+      <section id="panel-log" class="tabpanel p-4 gap-3" role="tabpanel" aria-labelledby="tab-log">
+        <div class="flex gap-2 flex-wrap">
+          <button id="btnClearLog" class="btn" type="button">Clear</button>
+          <button id="btnExport" class="btn" type="button">Export CSV</button>
+        </div>
+        <ul id="logList" class="list-none m-0 p-0 overflow-y-auto scroll max-h-[58vh] lg:max-h-none lg:flex-1 min-h-0 rounded-lg border border-[rgba(34,229,255,.14)] bg-[rgba(6,12,22,.6)]"></ul>
+      </section>
+
+      <!-- SYSTEM -->
+      <section id="panel-sys" class="tabpanel p-4 gap-4 overflow-y-auto scroll max-h-[70vh] lg:max-h-none" role="tabpanel" aria-labelledby="tab-sys">
+        <div class="grid gap-3">
+          <div class="field">
+            <label for="voiceSel">Voice</label>
+            <select id="voiceSel" class="input"><option>System default</option></select>
+          </div>
+          <div class="grid grid-cols-2 gap-3">
+            <div class="field"><label for="rate">Speed <span id="rateVal" class="text-white font-mono normal-case tracking-normal">1.0</span></label><input id="rate" type="range" min="0.6" max="1.6" step="0.1" value="1"></div>
+            <div class="field"><label for="volume">Volume <span id="volVal" class="text-white font-mono normal-case tracking-normal">100%</span></label><input id="volume" type="range" min="0" max="1" step="0.05" value="1"></div>
+          </div>
+          <div class="grid grid-cols-2 gap-3">
+            <div class="field">
+              <label for="settle">Speech trigger</label>
+              <select id="settle" class="input">
+                <option value="0">Instant</option>
+                <option value="450">Stable (450 ms)</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="lcdThemeSel">LCD backlight</label>
+              <select id="lcdThemeSel" class="input"><option value="green">Green</option><option value="blue">Blue</option></select>
+            </div>
+          </div>
+          <label class="flex items-center gap-2 text-sm text-slate-300 font-mono cursor-pointer"><input id="sfx" type="checkbox" checked class="accent-[#22e5ff] w-4 h-4"> Interface sound effects</label>
+        </div>
+
+        <div>
+          <h3 class="font-display text-[10px] tracking-[.2em] text-neon-cyan mb-1">LIVE METRICS</h3>
+          <div class="stat"><span>Signs in dictionary</span><b id="statDict">0</b></div>
+          <div class="stat"><span>Gesture space (2&#8309;)</span><b>32 states</b></div>
+          <div class="stat"><span>Recognised this session</span><b id="statRec">0</b></div>
+          <div class="stat"><span>Input &rarr; output latency</span><b id="statLat">&ndash;</b></div>
+          <div class="stat"><span>Render rate</span><b id="statFps">&ndash;</b></div>
+          <div class="stat"><span>Speech engine</span><b id="statSpeech">&ndash;</b></div>
+        </div>
+
+        <div>
+          <h3 class="font-display text-[10px] tracking-[.2em] text-neon-cyan mb-2">HOW IT WORKS</h3>
+          <div class="grid gap-2.5">
+            <div class="step"><span class="n">1</span><span><b class="text-white">Sense.</b> Every finger is a virtual flex sensor: bent = 1, extended = 0.</span></div>
+            <div class="step"><span class="n">2</span><span><b class="text-white">Encode.</b> The five sensors form a 5-bit word (T-I-M-R-P), e.g. <span class="font-mono text-neon-pink">01100</span>.</span></div>
+            <div class="step"><span class="n">3</span><span><b class="text-white">Match.</b> A hash-map lookup resolves the word in O(1). Unknown codes fall back to a Hamming-distance suggestion.</span></div>
+            <div class="step"><span class="n">4</span><span><b class="text-white">Output.</b> The word is typed on the 16&times;2 LCD and spoken by the browser's built-in SpeechSynthesis engine. No server, no network calls beyond the CDN libraries.</span></div>
+          </div>
+          <p class="mt-3 text-[12px] text-slate-400 leading-relaxed">The same dictionary and encoding map directly onto a physical glove (flex sensors &rarr; microcontroller ADC &rarr; thresholds &rarr; 5-bit code), making this simulator a software twin for testing vocabularies before any hardware exists.</p>
+        </div>
+      </section>
+    </div>
+  </aside>
+</main>
+
+<footer class="max-w-[1500px] mx-auto px-4 pb-8 text-center font-mono text-[11px] text-slate-500 tracking-wider">
+  SIGNGLOVE TRANSLATOR &middot; HTML5 &middot; TAILWIND CSS &middot; VANILLA JS (ES2020) &middot; THREE.JS &middot; WEB SPEECH API
+</footer>
+
+<div id="toasts" aria-live="polite"></div>
+
+<!-- ======================= THREE.JS (CDN) ======================= -->
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+  }
+}
+</script>
+
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+/* =====================================================================
+   0. HELPERS
+   ===================================================================== */
+const $  = (s, r = document) => r.querySelector(s);
+const $$ = (s, r = document) => Array.from(r.querySelectorAll(s));
+const pad2 = n => String(n).padStart(2, '0');
+
+/* =====================================================================
+   1. DATA: FINGERS + DICTIONARY
+   Gesture code = 5 characters in the order T I M R P.
+   '1' = finger ACTIVE (bent), '0' = finger INACTIVE (extended).
+   ===================================================================== */
+const FINGER_DEFS = [
+  { id: 'thumb',  name: 'Thumb',  short: 'T', root: [-1.50, -0.95, 0.08], radius: 0.34,  len: [0.62, 0.78, 0.62], max: [0.50, 0.95, 0.75], tilt: 0.88,  tiltBent: -0.30 },
+  { id: 'index',  name: 'Index',  short: 'I', root: [-1.08,  1.50, 0.05], radius: 0.30,  len: [0.95, 0.70, 0.55], max: [1.40, 1.70, 1.00], tilt: 0.03,  tiltBent: 0.03 },
+  { id: 'middle', name: 'Middle', short: 'M', root: [-0.36,  1.50, 0.05], radius: 0.31,  len: [1.05, 0.80, 0.60], max: [1.40, 1.70, 1.00], tilt: 0.00,  tiltBent: 0.00 },
+  { id: 'ring',   name: 'Ring',   short: 'R', root: [ 0.36,  1.50, 0.05], radius: 0.30,  len: [0.95, 0.75, 0.55], max: [1.40, 1.70, 1.00], tilt: -0.03, tiltBent: -0.03 },
+  { id: 'pinky',  name: 'Pinky',  short: 'P', root: [ 1.08,  1.50, 0.05], radius: 0.265, len: [0.75, 0.55, 0.45], max: [1.40, 1.70, 1.00], tilt: -0.09, tiltBent: -0.09 }
+];
+
+const DICTIONARY = [
+  { code: '11111', lcd: 'HELLO / STOP', speak: 'Hello. Stop.',  cat: 'Greeting'  },
+  { code: '00001', lcd: 'HELP',         speak: 'Help',          cat: 'Emergency' },
+  { code: '10000', lcd: 'GOOD',         speak: 'Good',          cat: 'Feedback'  },
+  { code: '01100', lcd: 'PEACE',        speak: 'Peace',         cat: 'Greeting'  },
+  { code: '01000', lcd: 'WAIT',         speak: 'Wait',          cat: 'Request'   },
+  { code: '11001', lcd: 'I LOVE YOU',   speak: 'I love you',    cat: 'Emotion'   },
+  { code: '10001', lcd: 'CALL ME',      speak: 'Call me',       cat: 'Request'   },
+  { code: '11100', lcd: 'THANK YOU',    speak: 'Thank you',     cat: 'Courtesy'  },
+  { code: '01110', lcd: 'WATER',        speak: 'Water',         cat: 'Need'      },
+  { code: '00111', lcd: 'OK',           speak: 'Okay',          cat: 'Feedback'  },
+  { code: '01111', lcd: 'YES',          speak: 'Yes',           cat: 'Answer'    },
+  { code: '11110', lcd: 'NO',           speak: 'No',            cat: 'Answer'    },
+  { code: '00011', lcd: 'PLEASE',       speak: 'Please',        cat: 'Courtesy'  },
+  { code: '11000', lcd: 'SORRY',        speak: 'Sorry',         cat: 'Courtesy'  },
+  { code: '00110', lcd: 'FOOD',         speak: 'I need food',   cat: 'Need'      }
+];
+
+function codeToNames(code){
+  const names = FINGER_DEFS.filter((f, i) => code[i] === '1').map(f => f.name);
+  return names.length ? names.join(' + ') : 'None';
+}
+
+/* Dictionary integrity checks (runs once at start-up). */
+(function validateDictionary(){
+  const seen = new Set();
+  DICTIONARY.forEach((e, i) => {
+    e.id = i + 1;
+    e.fingers = codeToNames(e.code);
+    if (!/^[01]{5}$/.test(e.code)) console.error('[dictionary] invalid code', e);
+    if (seen.has(e.code))          console.error('[dictionary] duplicate code', e.code);
+    if (e.lcd.length > 16)         console.error('[dictionary] LCD text exceeds 16 chars', e.lcd);
+    seen.add(e.code);
+  });
+})();
+
+const LOOKUP = new Map(DICTIONARY.map(e => [e.code, e]));   // O(1) matching
+
+function hamming(a, b){ let d = 0; for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) d++; return d; }
+function nearestEntry(code){
+  let best = null;
+  for (const e of DICTIONARY){
+    const d = hamming(code, e.code);
+    if (!best || d < best.dist) best = { entry: e, dist: d };
+  }
+  return best;
+}
+
+/* =====================================================================
+   2. LCD 16x2 DRIVER (DOM based, typewriter effect, blinking cursor)
+   ===================================================================== */
+class LCD {
+  constructor(root, cols = 16, rows = 2){
+    this.root = root; this.cols = cols; this.rows = rows;
+    this.cells = []; this.timers = []; this.cursorEl = null; this.cursorRow = -1;
+    for (let r = 0; r < rows; r++){
+      const row = document.createElement('div');
+      row.className = 'lcd-row';
+      const line = [];
+      for (let c = 0; c < cols; c++){
+        const cell = document.createElement('span');
+        cell.className = 'lcd-cell';
+        row.appendChild(cell);
+        line.push(cell);
+      }
+      root.appendChild(row);
+      this.cells.push(line);
+      this.timers.push(0);
+    }
+  }
+  layout(text, align){
+    const t = String(text).toUpperCase().slice(0, this.cols);
+    const lead = align === 'center' ? Math.floor((this.cols - t.length) / 2) : 0;
+    return ' '.repeat(lead) + t + ' '.repeat(this.cols - lead - t.length);
+  }
+  paint(r, str){
+    for (let c = 0; c < this.cols; c++){
+      const ch = str[c] === ' ' ? '' : str[c];
+      const el = this.cells[r][c];
+      if (el.textContent !== ch) el.textContent = ch;
+    }
+  }
+  setCursor(r, c){
+    if (this.cursorEl) this.cursorEl.classList.remove('cursor');
+    this.cursorEl = (c >= 0 && c < this.cols) ? this.cells[r][c] : null;
+    this.cursorRow = this.cursorEl ? r : -1;
+    if (this.cursorEl) this.cursorEl.classList.add('cursor');
+  }
+  print(r, text, { align = 'center', type = false, speed = 16 } = {}){
+    clearInterval(this.timers[r]);
+    const full  = this.layout(text, align);
+    const first = full.search(/\S/);
+    if (this.cursorRow === r) this.setCursor(r, -1);
+    if (first < 0){ this.paint(r, full); return; }
+    if (!type){ this.paint(r, full); return; }
+    const last = full.trimEnd().length;
+    const total = last - first;
+    let n = 0;
+    this.paint(r, ' '.repeat(this.cols));
+    this.setCursor(r, first);
+    this.timers[r] = setInterval(() => {
+      n++;
+      const shown = (' '.repeat(first) + full.slice(first, first + n)).padEnd(this.cols, ' ');
+      this.paint(r, shown);
+      this.setCursor(r, first + n);
+      if (n >= total) clearInterval(this.timers[r]);
+    }, speed);
+  }
+  flash(){
+    this.root.classList.remove('flash');
+    void this.root.offsetWidth;
+    this.root.classList.add('flash');
+  }
+  show(line1, line2){
+    this.print(0, line1, { type: true });
+    this.print(1, line2);
+    this.flash();
+  }
+}
+
+const lcd = new LCD($('#lcd'));
+
+/* =====================================================================
+   3. AUDIO: Web Speech API (SpeechSynthesis) + tiny WebAudio blips
+   ===================================================================== */
+const Speech = (() => {
+  const supported = 'speechSynthesis' in window && 'SpeechSynthesisUtterance' in window;
+  const synth = supported ? window.speechSynthesis : null;
+  const cfg = { enabled: true, rate: 1, volume: 1, voiceURI: '', settleMs: 0 };
+  let voices = [];
+  let token = 0;
+  let keepAlive = null;       // keeps a reference so utterances are not garbage-collected mid-speech
+  let safety = 0;
+
+  function setSpeaking(on){
+    $('#hudSpeaking').classList.toggle('is-hidden', !on);
+  }
+
+  function populate(){
+    if (!supported) return;
+    const all = synth.getVoices();
+    if (!all.length) return;
+    voices = all.slice().sort((a, b) => {
+      const ea = /^en/i.test(a.lang) ? 0 : 1, eb = /^en/i.test(b.lang) ? 0 : 1;
+      return ea - eb || a.name.localeCompare(b.name);
+    });
+    const sel = $('#voiceSel');
+    sel.innerHTML = '';
+    voices.forEach(v => sel.appendChild(new Option(`${v.name} (${v.lang})`, v.voiceURI)));
+    if (!cfg.voiceURI || !voices.some(v => v.voiceURI === cfg.voiceURI)){
+      const def = voices.find(v => /^en[-_]US/i.test(v.lang)) || voices.find(v => /^en/i.test(v.lang)) || voices[0];
+      cfg.voiceURI = def ? def.voiceURI : '';
+    }
+    sel.value = cfg.voiceURI;
+    $('#statSpeech').textContent = `${voices.length} voices`;
+  }
+
+  function init(){
+    const chip = $('#chipSpeech');
+    if (!supported){
+      chip.className = 'chip bad';
+      chip.innerHTML = '<span class="dotp"></span>SPEECH UNSUPPORTED';
+      $('#statSpeech').textContent = 'unsupported';
+      return;
+    }
+    populate();
+    synth.addEventListener?.('voiceschanged', populate);
+    setTimeout(populate, 400);
+    setTimeout(populate, 1500);
+    $('#statSpeech').textContent = 'ready';
+  }
+
+  function cancel(){
+    if (!supported) return;
+    token++;
+    synth.cancel();
+    setSpeaking(false);
+  }
+
+  function speak(text){
+    if (!supported || !cfg.enabled || !text) return false;
+    const my = ++token;
+    const u = new SpeechSynthesisUtterance(text);
+    const v = voices.find(x => x.voiceURI === cfg.voiceURI);
+    if (v){ u.voice = v; u.lang = v.lang; } else { u.lang = 'en-US'; }
+    u.rate = cfg.rate; u.pitch = 1; u.volume = cfg.volume;
+    u.onstart = () => { if (my === token) setSpeaking(true); };
+    u.onend = u.onerror = () => { if (my === token){ setSpeaking(false); clearTimeout(safety); } };
+    keepAlive = u;
+    setSpeaking(true);
+    clearTimeout(safety);
+    safety = setTimeout(() => { if (my === token) setSpeaking(false); }, 6000);
+    try {
+      if (synth.speaking || synth.pending){
+        synth.cancel();
+        setTimeout(() => { if (my === token){ if (synth.paused) synth.resume(); synth.speak(u); } }, 60);
+      } else {
+        if (synth.paused) synth.resume();
+        synth.speak(u);
+      }
+    } catch (err){
+      console.warn('Speech failed', err);
+      setSpeaking(false);
+      return false;
+    }
+    return true;
+  }
+
+  return { supported, cfg, init, speak, cancel };
+})();
+
+const Sfx = {
+  ctx: null, on: true,
+  blip(freq = 520, dur = 0.08, type = 'triangle', vol = 0.05){
+    if (!this.on) return;
+    try {
+      const AC = window.AudioContext || window.webkitAudioContext;
+      if (!AC) return;
+      this.ctx = this.ctx || new AC();
+      if (this.ctx.state === 'suspended') this.ctx.resume();
+      const t = this.ctx.currentTime;
+      const o = this.ctx.createOscillator(), g = this.ctx.createGain();
+      o.type = type;
+      o.frequency.setValueAtTime(freq, t);
+      o.frequency.exponentialRampToValueAtTime(freq * 1.5, t + dur);
+      g.gain.setValueAtTime(vol, t);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+      o.connect(g); g.connect(this.ctx.destination);
+      o.start(t); o.stop(t + dur + 0.02);
+    } catch (e) { /* audio is optional */ }
+  }
+};
+
+/* =====================================================================
+   4. THREE.JS SCENE: articulated 3D glove
+   ===================================================================== */
+const viewport = $('#viewport');
+const canvas   = $('#gl');
+const labelsEl = $('#labels');
+
+let renderer = null;
+try {
+  renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
+  renderer.outputColorSpace = THREE.SRGBColorSpace;
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = 1.15;
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+} catch (err){
+  console.error('WebGL init failed:', err);
+  renderer = null;
+  $('#glFallback').classList.remove('is-hidden');
+  labelsEl.classList.add('static-row');
+}
+
+const BG = 0x050912;
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(BG);
+scene.fog = new THREE.FogExp2(BG, 0.032);
+
+const camera = new THREE.PerspectiveCamera(40, 1, 0.1, 120);
+camera.position.set(4.5, 2.6, 12);
+
+const controls = new OrbitControls(camera, canvas);
+controls.target.set(0, 0.6, 0);
+controls.enableDamping = true;
+controls.dampingFactor = 0.08;
+controls.enablePan = false;
+controls.minDistance = 6;
+controls.maxDistance = 30;
+controls.minPolarAngle = 0.45;
+controls.maxPolarAngle = Math.PI * 0.62;
+controls.rotateSpeed = 0.8;
+
+/* ---------- lights ---------- */
+scene.add(new THREE.AmbientLight(0x8fb4ff, 0.9));
+scene.add(new THREE.HemisphereLight(0x9fe8ff, 0x1a0b2e, 0.7));
+const key = new THREE.DirectionalLight(0xffffff, 2.4); key.position.set(5, 8, 8); scene.add(key);
+const cyanL = new THREE.PointLight(0x22e5ff, 140, 0, 2); cyanL.position.set(-6, 2, 5); scene.add(cyanL);
+const pinkL = new THREE.PointLight(0xff2e9a, 140, 0, 2); pinkL.position.set(6, 0, -3); scene.add(pinkL);
+const rimL  = new THREE.PointLight(0x7a5cff, 90, 0, 2);  rimL.position.set(0, 5, -6);  scene.add(rimL);
+
+/* ---------- procedural textures ---------- */
+function makeGlowTexture(){
+  const c = document.createElement('canvas'); c.width = c.height = 128;
+  const g = c.getContext('2d');
+  const grd = g.createRadialGradient(64, 64, 0, 64, 64, 64);
+  grd.addColorStop(0, 'rgba(255,255,255,1)');
+  grd.addColorStop(0.25, 'rgba(255,255,255,0.55)');
+  grd.addColorStop(1, 'rgba(255,255,255,0)');
+  g.fillStyle = grd; g.fillRect(0, 0, 128, 128);
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t;
+}
+const glowTex = makeGlowTexture();
+
+function makeCircuitTexture(){
+  const S = 512;
+  const c = document.createElement('canvas'); c.width = c.height = S;
+  const g = c.getContext('2d');
+  g.clearRect(0, 0, S, S);
+  g.strokeStyle = '#22e5ff'; g.fillStyle = '#22e5ff'; g.lineWidth = 3;
+  g.shadowColor = '#22e5ff'; g.shadowBlur = 8;
+  let s = 7; const rnd = () => (s = (s * 16807) % 2147483647) / 2147483647;   // deterministic PRNG
+  for (let i = 0; i < 26; i++){
+    let cx = 40 + Math.floor(rnd() * 14) * 32, cy = 40 + Math.floor(rnd() * 14) * 32;
+    g.beginPath(); g.moveTo(cx, cy);
+    const segs = 2 + Math.floor(rnd() * 4);
+    for (let k = 0; k < segs; k++){
+      const step = 32 * (1 + Math.floor(rnd() * 2)) * (rnd() > 0.5 ? 1 : -1);
+      if (rnd() > 0.5) cx += step; else cy += step;
+      cx = Math.max(24, Math.min(S - 24, cx)); cy = Math.max(24, Math.min(S - 24, cy));
+      g.lineTo(cx, cy);
+    }
+    g.stroke();
+    g.beginPath(); g.arc(cx, cy, 6, 0, Math.PI * 2); g.fill();
+  }
+  // central sensor target
+  g.shadowBlur = 14; g.lineWidth = 4;
+  g.fillStyle = 'rgba(4,10,20,0.92)';
+  g.beginPath(); g.arc(S / 2, S / 2, 112, 0, Math.PI * 2); g.fill(); g.stroke();
+  g.lineWidth = 2; g.beginPath(); g.arc(S / 2, S / 2, 92, 0, Math.PI * 2); g.stroke();
+  for (let a = 0; a < 360; a += 30){
+    const r = a * Math.PI / 180;
+    g.beginPath(); g.moveTo(S / 2 + Math.cos(r) * 112, S / 2 + Math.sin(r) * 112);
+    g.lineTo(S / 2 + Math.cos(r) * 124, S / 2 + Math.sin(r) * 124); g.stroke();
+  }
+  g.shadowBlur = 8; g.fillStyle = '#bff6ff';
+  g.textAlign = 'center'; g.textBaseline = 'middle';
+  g.font = 'bold 44px "Courier New", monospace'; g.fillText('PALM', S / 2, S / 2 - 16);
+  g.font = '26px "Courier New", monospace';      g.fillText('REPEAT', S / 2, S / 2 + 26);
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4; return t;
+}
+
+/* ---------- colours ---------- */
+const C_EXT  = new THREE.Color(0x22e5ff);   // extended / inactive
+const C_ACT  = new THREE.Color(0xff2e9a);   // bent / active
+const C_BODY_EXT = new THREE.Color(0x16243c);
+const C_BODY_ACT = new THREE.Color(0x3a1230);
+const tmpC = new THREE.Color();
+
+/* ---------- picking registry ---------- */
+const pickables = [];
+const hitMat = new THREE.MeshBasicMaterial({ colorWrite: false, depthWrite: false });
+
+/* ---------- glove root ---------- */
+const glove = new THREE.Group();
+scene.add(glove);
+
+/* palm: rounded slab */
+function roundedRectShape(w, h, r){
+  const s = new THREE.Shape();
+  const x = -w / 2, y = -h / 2;
+  s.moveTo(x + r, y);
+  s.lineTo(x + w - r, y);     s.quadraticCurveTo(x + w, y, x + w, y + r);
+  s.lineTo(x + w, y + h - r); s.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+  s.lineTo(x + r, y + h);     s.quadraticCurveTo(x, y + h, x, y + h - r);
+  s.lineTo(x, y + r);         s.quadraticCurveTo(x, y, x + r, y);
+  return s;
+}
+const palmGeo = new THREE.ExtrudeGeometry(roundedRectShape(2.9, 3.0, 0.55), {
+  depth: 0.5, bevelEnabled: true, bevelThickness: 0.14, bevelSize: 0.14, bevelSegments: 6, curveSegments: 16
+});
+palmGeo.translate(0, 0, -0.25);
+const palmMat = new THREE.MeshStandardMaterial({ color: 0x13213a, roughness: 0.55, metalness: 0.25, emissive: 0x0a2a3a, emissiveIntensity: 0.5 });
+const palm = new THREE.Mesh(palmGeo, palmMat);
+palm.userData.part = 'palm';
+glove.add(palm); pickables.push(palm);
+
+const padMat = new THREE.MeshBasicMaterial({
+  map: makeCircuitTexture(), color: 0x22e5ff, transparent: true, opacity: 0.6,
+  depthWrite: false, blending: THREE.AdditiveBlending
+});
+const pad = new THREE.Mesh(new THREE.PlaneGeometry(2.2, 2.2), padMat);
+pad.position.set(0, -0.1, 0.41);
+pad.userData.part = 'palm';
+glove.add(pad); pickables.push(pad);
+
+/* wrist cuff + controller module */
+const cuffGroup = new THREE.Group();
+cuffGroup.position.set(0, -2.35, 0);
+cuffGroup.scale.set(1, 1, 0.55);
+const cuffMat = new THREE.MeshStandardMaterial({ color: 0x0e1a2e, roughness: 0.6, metalness: 0.3 });
+cuffGroup.add(new THREE.Mesh(new THREE.CylinderGeometry(1.25, 1.4, 1.5, 40, 1), cuffMat));
+const cuffRingMat = new THREE.MeshStandardMaterial({ color: 0x05090f, emissive: 0x22e5ff, emissiveIntensity: 1.1, roughness: 0.4 });
+[-0.5, 0.5].forEach(y => {
+  const ring = new THREE.Mesh(new THREE.TorusGeometry(y < 0 ? 1.36 : 1.3, 0.04, 10, 56), cuffRingMat);
+  ring.rotation.x = Math.PI / 2; ring.position.y = y; cuffGroup.add(ring);
+});
+glove.add(cuffGroup);
+const moduleMesh = new THREE.Mesh(new THREE.BoxGeometry(1.0, 0.6, 0.3), new THREE.MeshStandardMaterial({ color: 0x0b1424, roughness: 0.35, metalness: 0.7 }));
+moduleMesh.position.set(0, -2.3, 0.86); glove.add(moduleMesh);
+const mcuLedMat = new THREE.MeshStandardMaterial({ color: 0x021008, emissive: 0xb6ff3b, emissiveIntensity: 1.5 });
+const mcuLed = new THREE.Mesh(new THREE.SphereGeometry(0.06, 12, 10), mcuLedMat);
+mcuLed.position.set(0.34, -2.3, 1.02); glove.add(mcuLed);
+
+/* ---------- Finger model ---------- */
+const easeSmooth = x => x * x * (3 - 2 * x);
+
+class FingerModel {
+  constructor(index, def){
+    this.index = index; this.def = def; this.id = def.id;
+    this.active = false; this.bend = 0; this.hover = 0; this.pulse = 0;
+    this.pivots = []; this.label = null;
+    this.bodyMat = new THREE.MeshStandardMaterial({ color: C_BODY_EXT.clone(), roughness: 0.42, metalness: 0.3, emissive: C_EXT.clone(), emissiveIntensity: 0.08 });
+    this.accentMat = new THREE.MeshStandardMaterial({ color: 0x05090f, roughness: 0.3, metalness: 0.6, emissive: C_EXT.clone(), emissiveIntensity: 1 });
+    this.build();
+  }
+  build(){
+    const d = this.def;
+    this.root = new THREE.Group();
+    this.root.position.set(d.root[0], d.root[1], d.root[2]);
+    this.root.rotation.z = d.tilt;
+    glove.add(this.root);
+
+    let parent = this.root;
+    const taper = k => d.radius * (1 - k * 0.07);
+
+    d.len.forEach((len, i) => {
+      const pivot = new THREE.Group();
+      pivot.position.y = i === 0 ? 0 : d.len[i - 1];
+      parent.add(pivot);
+      const r0 = taper(i), r1 = taper(i + 1);
+
+      const seg = new THREE.Mesh(new THREE.CylinderGeometry(r1, r0, len, 24, 1), this.bodyMat);
+      seg.position.y = len / 2; seg.userData.part = d.id;
+      pivot.add(seg); pickables.push(seg);
+
+      const joint = new THREE.Mesh(new THREE.SphereGeometry(r0 * 1.04, 20, 14), this.bodyMat);
+      joint.userData.part = d.id; pivot.add(joint); pickables.push(joint);
+
+      const ring = new THREE.Mesh(new THREE.TorusGeometry(r0 * 1.03, 0.028, 8, 28), this.accentMat);
+      ring.rotation.x = Math.PI / 2; ring.position.y = 0.12; pivot.add(ring);
+
+      const hit = new THREE.Mesh(new THREE.CylinderGeometry(r1 * 1.25, r0 * 1.25, len, 12, 1), hitMat);
+      hit.position.y = len / 2; hit.userData.part = d.id; pivot.add(hit); pickables.push(hit);
+
+      this.pivots.push(pivot);
+      parent = pivot;
+    });
+
+    const lastLen = d.len[d.len.length - 1];
+    const tipR = taper(d.len.length);
+    const tip = new THREE.Mesh(new THREE.SphereGeometry(tipR * 1.02, 20, 14), this.accentMat);
+    tip.position.y = lastLen; tip.userData.part = d.id;
+    parent.add(tip); pickables.push(tip);
+
+    this.glow = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex, color: C_EXT.clone(), transparent: true, opacity: 0.45, blending: THREE.AdditiveBlending, depthWrite: false }));
+    this.glow.position.y = lastLen; this.glow.scale.setScalar(1.2);
+    parent.add(this.glow);
+
+    // fixed label anchor above the extended fingertip
+    const L = d.len.reduce((a, b) => a + b, 0) + 0.12;
+    this.anchor = new THREE.Object3D();
+    this.anchor.position.set(d.root[0] - Math.sin(d.tilt) * L, d.root[1] + Math.cos(d.tilt) * L + 0.4, 0.15);
+    glove.add(this.anchor);
+  }
+  update(dt, hoverId){
+    const target = this.active ? 1 : 0;
+    this.bend += (target - this.bend) * (1 - Math.exp(-dt * 13));
+    if (Math.abs(target - this.bend) < 0.0005) this.bend = target;
+    this.hover += ((hoverId === this.id ? 1 : 0) - this.hover) * (1 - Math.exp(-dt * 12));
+    this.pulse = Math.max(0, this.pulse - dt * 2.2);
+
+    const b = easeSmooth(this.bend), d = this.def;
+    for (let i = 0; i < this.pivots.length; i++) this.pivots[i].rotation.x = b * d.max[i];
+    this.root.rotation.z = d.tilt + (d.tiltBent - d.tilt) * b;
+
+    tmpC.copy(C_EXT).lerp(C_ACT, b);
+    this.accentMat.emissive.copy(tmpC);
+    this.accentMat.emissiveIntensity = 0.9 + 0.9 * b + this.hover * 0.7 + this.pulse * 1.2;
+    this.bodyMat.emissive.copy(tmpC);
+    this.bodyMat.emissiveIntensity = 0.06 + 0.2 * b + this.hover * 0.2;
+    this.bodyMat.color.copy(C_BODY_EXT).lerp(C_BODY_ACT, b);
+    this.glow.material.color.copy(tmpC);
+    this.glow.material.opacity = 0.35 + 0.35 * b + this.hover * 0.25;
+    this.glow.scale.setScalar(1.1 + this.pulse * 1.3 + b * 0.3);
+  }
+}
+
+const fingerModels = FINGER_DEFS.map((def, i) => new FingerModel(i, def));
+
+/* ---------- environment: hologram base, grid, beam, particles ---------- */
+const base = new THREE.Group(); base.position.y = -3.4; scene.add(base);
+base.add(new THREE.Mesh(new THREE.CylinderGeometry(3.6, 3.9, 0.18, 64), new THREE.MeshStandardMaterial({ color: 0x0b1424, metalness: 0.8, roughness: 0.35 })));
+const ring1 = new THREE.Mesh(new THREE.TorusGeometry(3.45, 0.035, 12, 120), new THREE.MeshBasicMaterial({ color: 0x22e5ff }));
+ring1.rotation.x = Math.PI / 2; ring1.position.y = 0.1; base.add(ring1);
+const ring2 = new THREE.Mesh(new THREE.TorusGeometry(2.6, 0.025, 12, 120), new THREE.MeshBasicMaterial({ color: 0xff2e9a, transparent: true, opacity: 0.85 }));
+ring2.rotation.x = Math.PI / 2; ring2.position.y = 0.11; base.add(ring2);
+const ring3 = new THREE.Mesh(new THREE.TorusGeometry(1.9, 0.02, 12, 6), new THREE.MeshBasicMaterial({ color: 0xb6ff3b, transparent: true, opacity: 0.7 }));
+ring3.rotation.x = Math.PI / 2; ring3.position.y = 0.12; base.add(ring3);
+
+const beam = new THREE.Mesh(
+  new THREE.CylinderGeometry(3.3, 3.55, 6.5, 48, 1, true),
+  new THREE.MeshBasicMaterial({ color: 0x22e5ff, transparent: true, opacity: 0.045, side: THREE.DoubleSide, blending: THREE.AdditiveBlending, depthWrite: false })
+);
+beam.position.y = 3.2; base.add(beam);
+
+const grid = new THREE.GridHelper(60, 60, 0x22e5ff, 0x0b2a3a);
+grid.position.y = -3.52;
+grid.material.transparent = true; grid.material.opacity = 0.35;
+scene.add(grid);
+
+(function makeParticles(){
+  const N = 280, pos = new Float32Array(N * 3);
+  for (let i = 0; i < N; i++){
+    const r = 7 + Math.random() * 9, th = Math.random() * Math.PI * 2, ph = Math.acos(2 * Math.random() - 1);
+    pos[i * 3] = r * Math.sin(ph) * Math.cos(th);
+    pos[i * 3 + 1] = (r * Math.cos(ph)) * 0.6;
+    pos[i * 3 + 2] = r * Math.sin(ph) * Math.sin(th);
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  const pts = new THREE.Points(geo, new THREE.PointsMaterial({ color: 0x7ff3ff, size: 0.07, transparent: true, opacity: 0.7, depthWrite: false, blending: THREE.AdditiveBlending }));
+  pts.name = 'particles';
+  scene.add(pts);
+})();
+const particles = scene.getObjectByName('particles');
+
+const backGlow = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex, color: 0x1d6dff, transparent: true, opacity: 0.22, blending: THREE.AdditiveBlending, depthWrite: false, fog: false }));
+backGlow.scale.set(20, 20, 1); backGlow.position.set(0, 0.5, -7); scene.add(backGlow);
+
+/* ---------- camera fitting / resize ---------- */
+const camDir = new THREE.Vector3(0.34, 0.16, 1).normalize();
+let W = 1, H = 1, lastAspect = 0;
+
+function fitCamera(reset){
+  const need = Math.max(9.8, 8.4 / camera.aspect);
+  const dist = (need / 2) / Math.tan(THREE.MathUtils.degToRad(camera.fov / 2));
+  const dir = reset ? camDir.clone() : camera.position.clone().sub(controls.target).normalize();
+  camera.position.copy(controls.target).addScaledVector(dir, dist);
+  controls.update();
+}
+function resize(){
+  W = Math.max(1, viewport.clientWidth);
+  H = Math.max(1, viewport.clientHeight);
+  camera.aspect = W / H;
+  camera.updateProjectionMatrix();
+  if (renderer){
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    renderer.setSize(W, H, false);
+  }
+  if (Math.abs(camera.aspect - lastAspect) > 0.12){
+    fitCamera(lastAspect === 0);
+    lastAspect = camera.aspect;
+  }
+}
+new ResizeObserver(resize).observe(viewport);
+resize();
+
+/* =====================================================================
+   5. INTERACTION: Raycaster picking (mouse + touch), hover, keyboard
+   ===================================================================== */
+const raycaster = new THREE.Raycaster();
+const ndc = new THREE.Vector2();
+let hoverId = null;
+let palmPulse = 0;
+const tip = $('#tip');
+
+function pickPart(ev){
+  const r = canvas.getBoundingClientRect();
+  ndc.set(((ev.clientX - r.left) / r.width) * 2 - 1, -((ev.clientY - r.top) / r.height) * 2 + 1);
+  raycaster.setFromCamera(ndc, camera);
+  const hits = raycaster.intersectObjects(pickables, false);
+  return hits.length ? hits[0].object.userData.part : null;
+}
+
+const pointers = new Set();
+let downInfo = null;
+
+canvas.addEventListener('pointerdown', ev => {
+  pointers.add(ev.pointerId);
+  downInfo = pointers.size === 1 ? { x: ev.clientX, y: ev.clientY, t: performance.now() } : null;
+  tip.classList.add('is-hidden');
+});
+canvas.addEventListener('pointerup', ev => {
+  pointers.delete(ev.pointerId);
+  const d = downInfo; downInfo = null;
+  if (!d) return;
+  const moved = Math.hypot(ev.clientX - d.x, ev.clientY - d.y);
+  const dur = performance.now() - d.t;
+  if (moved < 8 && dur < 600){
+    const part = pickPart(ev);
+    if (part === 'palm') palmTap(ev.timeStamp);
+    else if (part) toggleFinger(FINGER_DEFS.findIndex(f => f.id === part), ev.timeStamp);
+  }
+});
+canvas.addEventListener('pointercancel', ev => { pointers.delete(ev.pointerId); downInfo = null; });
+canvas.addEventListener('pointermove', ev => {
+  if (ev.pointerType !== 'mouse' || pointers.size) return;
+  const part = pickPart(ev);
+  hoverId = part;
+  canvas.style.cursor = part ? 'pointer' : 'grab';
+  if (part){
+    const f = fingerModels.find(m => m.id === part);
+    tip.textContent = part === 'palm'
+      ? 'PALM SENSOR · click to repeat last word'
+      : `${f.def.name.toUpperCase()} · ${f.active ? 'BENT (1)' : 'EXTENDED (0)'} · click to toggle`;
+    const vr = viewport.getBoundingClientRect();
+    tip.style.left = Math.min(ev.clientX - vr.left + 14, vr.width - 240) + 'px';
+    tip.style.top = (ev.clientY - vr.top + 16) + 'px';
+    tip.classList.remove('is-hidden');
+  } else {
+    tip.classList.add('is-hidden');
+  }
+});
+canvas.addEventListener('pointerleave', () => { hoverId = null; tip.classList.add('is-hidden'); canvas.style.cursor = ''; });
+
+document.addEventListener('keydown', ev => {
+  if (ev.target.closest && ev.target.closest('input, select, textarea, button')) return;
+  if (ev.ctrlKey || ev.metaKey || ev.altKey) return;
+  if (ev.key >= '1' && ev.key <= '5'){ toggleFinger(Number(ev.key) - 1, ev.timeStamp); }
+  else if (ev.key === '0' || ev.key === 'Escape'){ resetGlove(); }
+  else if (ev.key === 'r' || ev.key === 'R' || ev.key === ' '){ ev.preventDefault(); repeatWord(); }
+});
+
+/* ---------- HTML finger labels (also keyboard / screen-reader accessible) ---------- */
+fingerModels.forEach(f => {
+  const b = document.createElement('button');
+  b.type = 'button';
+  b.className = 'flabel';
+  b.textContent = f.def.short;
+  b.title = `${f.def.name} finger: click to bend / extend`;
+  b.setAttribute('aria-label', `${f.def.name} finger`);
+  b.setAttribute('aria-pressed', 'false');
+  b.addEventListener('click', ev => toggleFinger(f.index, ev.timeStamp));
+  labelsEl.appendChild(b);
+  f.label = b;
+});
+
+const projV = new THREE.Vector3();
+function updateLabels(){
+  if (!renderer) return;
+  for (const f of fingerModels){
+    f.anchor.getWorldPosition(projV);
+    projV.project(camera);
+    const x = (projV.x * 0.5 + 0.5) * W;
+    const y = (-projV.y * 0.5 + 0.5) * H;
+    f.label.style.transform = `translate(${x.toFixed(1)}px, ${y.toFixed(1)}px) translate(-50%, -100%)`;
+  }
+}
+
+/* =====================================================================
+   6. TRANSLATION ENGINE: state -> code -> dictionary -> LCD + speech
+   ===================================================================== */
+const state = { lastCode: '00000', lastEntry: null, recognized: 0, log: [], latency: null, speechTimer: 0 };
+const practice = { on: false, target: null, score: 0, hint: false, last: null };
+
+const hudLeds   = $('#hudLeds');
+const hudCode   = $('#hudCode');
+const hudStatus = $('#hudStatus');
+const hintEl    = $('#hint');
+
+FINGER_DEFS.forEach(f => {
+  const col = document.createElement('div');
+  col.className = 'led-col';
+  col.innerHTML = `<div class="led" data-led="${f.id}"></div><span>${f.short}</span>`;
+  hudLeds.appendChild(col);
+});
+
+function getCode(){ return fingerModels.map(f => (f.active ? '1' : '0')).join(''); }
+
+function toast(msg, kind = ''){
+  const el = document.createElement('div');
+  el.className = 'toast ' + kind;
+  el.textContent = msg;
+  $('#toasts').appendChild(el);
+  setTimeout(() => { el.style.transition = 'opacity .3s'; el.style.opacity = '0'; setTimeout(() => el.remove(), 320); }, 2200);
+}
+
+function updateHud(code, entry){
+  $$('.led', hudLeds).forEach((el, i) => el.classList.toggle('on', code[i] === '1'));
+  hudCode.textContent = code.split('').join(' ');
+  hudStatus.className = 'chip max-w-full truncate ' + (entry ? 'ok' : code === '00000' ? '' : 'warn');
+  hudStatus.innerHTML = '<span class="dotp"></span>' + (entry ? 'MATCH · ' + entry.lcd : code === '00000' ? 'IDLE' : 'UNMAPPED');
+  fingerModels.forEach((f, i) => {
+    f.label.classList.toggle('on', code[i] === '1');
+    f.label.setAttribute('aria-pressed', String(code[i] === '1'));
+  });
+}
+
+function updateHint(code, entry){
+  if (entry){
+    hintEl.innerHTML = `<span class="text-neon-lime">MATCH</span> &ldquo;${entry.lcd}&rdquo; &middot; ${entry.fingers} bent &middot; code <span class="text-neon-pink">${code}</span>`;
+  } else if (code === '00000'){
+    hintEl.textContent = 'All fingers extended: idle. Tap a finger on the 3D glove to bend it and start translating.';
+  } else {
+    const n = nearestEntry(code);
+    hintEl.innerHTML = `<span class="text-neon-amber">NO EXACT MATCH</span> for <span class="text-neon-pink">${code}</span>. Closest sign: &ldquo;${n.entry.lcd}&rdquo; (${n.dist} finger${n.dist > 1 ? 's' : ''} off).`;
+  }
+}
+
+function scheduleSpeech(entry){
+  clearTimeout(state.speechTimer);
+  const settle = Speech.cfg.settleMs;
+  if (settle <= 0){ Speech.speak(entry.speak); return; }
+  state.speechTimer = setTimeout(() => { if (state.lastEntry === entry) Speech.speak(entry.speak); }, settle);
+}
+
+function pushLog(entry, code, ms){
+  const d = new Date();
+  state.log.unshift({ time: `${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}`, word: entry.lcd, code, fingers: entry.fingers, ms });
+  if (state.log.length > 200) state.log.pop();
+  renderLog();
+}
+
+/* Core: runs on every finger click. */
+function evaluate(inputTs = performance.now(), force = false){
+  const t0 = performance.now();
+  const code = getCode();
+  const changed = code !== state.lastCode;
+  if (!changed && !force) return;
+
+  clearTimeout(state.speechTimer);
+  const entry = LOOKUP.get(code) || null;           // instant O(1) dictionary match
+  state.lastCode = code;
+  state.lastEntry = entry;
+
+  updateHud(code, entry);
+  updateHint(code, entry);
+  highlightDictionary(entry);
+
+  if (entry){
+    lcd.show(entry.lcd, `CODE:${code} ID:${pad2(entry.id)}`);
+    state.recognized++;
+    $('#statRec').textContent = state.recognized;
+    $('#srLive').textContent = entry.lcd;
+    scheduleSpeech(entry);                           // Web Speech API
+  } else if (code === '00000'){
+    lcd.show('READY', 'TAP THE GLOVE');
+  } else {
+    lcd.show('UNKNOWN SIGN', `CODE:${code} ID:--`);
+  }
+
+  let lat = performance.now() - inputTs;
+  if (!(lat >= 0 && lat < 1000)) lat = performance.now() - t0;
+  state.latency = lat;
+  $('#statLat').textContent = lat.toFixed(1) + ' ms';
+  if (entry) pushLog(entry, code, lat);
+
+  if (practice.on && practice.target && entry){
+    if (entry.id === practice.target.id){
+      practice.score++;
+      practice.target = null;
+      toast(`✔ Correct: ${entry.lcd}`, 'ok');
+      updatePracticeUI();
+      setTimeout(() => { if (practice.on) nextPractice(); }, 1700);
+    }
+  }
+}
+
+function toggleFinger(i, ts){
+  if (i < 0 || i >= fingerModels.length) return;
+  const f = fingerModels[i];
+  f.active = !f.active;
+  f.pulse = 1;
+  Sfx.blip(f.active ? 640 : 420);
+  evaluate(ts);
+}
+function setPattern(code, ts){
+  fingerModels.forEach((f, i) => { f.active = code[i] === '1'; f.pulse = 1; });
+  Sfx.blip(760, 0.1);
+  evaluate(ts, true);
+}
+function resetGlove(){
+  fingerModels.forEach(f => { f.active = false; });
+  Speech.cancel();
+  evaluate(performance.now());
+}
+function repeatWord(){
+  if (state.lastEntry){
+    palmPulse = 1;
+    Speech.speak(state.lastEntry.speak);
+    lcd.flash();
+  } else {
+    toast('Nothing to repeat yet. Make a sign first.');
+  }
+}
+function palmTap(ts){
+  palmPulse = 1;
+  Sfx.blip(880, 0.1, 'sine');
+  repeatWord();
+}
+
+/* =====================================================================
+   7. SIDEBAR UI: dictionary, log, practice, settings
+   ===================================================================== */
+const dictList = $('#dictList');
+function renderDictionary(){
+  dictList.innerHTML = '';
+  DICTIONARY.forEach(e => {
+    const li = document.createElement('li');
+    li.dataset.search = (e.lcd + ' ' + e.cat + ' ' + e.fingers).toLowerCase();
+    li.innerHTML = `
+      <button type="button" class="dict-item" data-code="${e.code}" aria-label="Preview sign for ${e.lcd}">
+        <span class="pat">${FINGER_DEFS.map((f, i) => `<span class="pdot ${e.code[i] === '1' ? 'on' : ''}">${f.short}</span>`).join('')}</span>
+        <span class="min-w-0 flex-1">
+          <span class="block font-display text-[13px] tracking-wide text-white truncate">${e.lcd}</span>
+          <span class="block text-[11px] text-slate-400 font-mono truncate">${e.cat} &middot; ${e.fingers}</span>
+        </span>
+        <span class="font-mono text-[11px] text-cyan-300/80">${e.code}</span>
+      </button>`;
+    dictList.appendChild(li);
+  });
+  $('#dictCount').textContent = DICTIONARY.length;
+  $('#statDict').textContent = DICTIONARY.length;
+}
+dictList.addEventListener('click', ev => {
+  const b = ev.target.closest('.dict-item');
+  if (b) setPattern(b.dataset.code, ev.timeStamp);
+});
+$('#dictFilter').addEventListener('input', ev => {
+  const q = ev.target.value.trim().toLowerCase();
+  $$('li', dictList).forEach(li => { li.hidden = q && !li.dataset.search.includes(q); });
+});
+
+function highlightDictionary(entry){
+  $$('.dict-item', dictList).forEach(b => b.classList.toggle('is-active', !!entry && b.dataset.code === entry.code));
+  if (!entry) return;
+  const btn = $(`.dict-item[data-code="${entry.code}"]`, dictList);
+  if (!btn || dictList.offsetParent === null) return;
+  const li = btn.parentElement;
+  const top = li.offsetTop, bottom = top + li.offsetHeight;
+  if (top < dictList.scrollTop || bottom > dictList.scrollTop + dictList.clientHeight){
+    dictList.scrollTo({ top: Math.max(0, top - 40), behavior: 'smooth' });
+  }
+}
+
+function renderLog(){
+  const ul = $('#logList');
+  if (!state.log.length){
+    ul.innerHTML = '<li class="p-3 text-sm font-mono text-slate-500">No translations yet. Tap the glove…</li>';
+    return;
+  }
+  ul.innerHTML = state.log.slice(0, 80).map(r =>
+    `<li class="log-row"><span class="t">${r.time}</span><b>${r.word}</b><span class="c">${r.code}</span></li>`).join('');
+}
+$('#btnClearLog').addEventListener('click', () => { state.log = []; renderLog(); });
+$('#btnExport').addEventListener('click', () => {
+  if (!state.log.length){ toast('Log is empty.'); return; }
+  const rows = [['time', 'word', 'code_TIMRP', 'bent_fingers', 'latency_ms']]
+    .concat(state.log.slice().reverse().map(r => [r.time, r.word, r.code, r.fingers, r.ms.toFixed(2)]));
+  const csv = rows.map(r => r.map(v => `"${String(v).replace(/"/g, '""')}"`).join(',')).join('\n');
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
+  a.download = 'signglove-session.csv';
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+});
+
+/* ---------- tabs ---------- */
+$$('.tab').forEach(tab => tab.addEventListener('click', () => {
+  $$('.tab').forEach(t => t.setAttribute('aria-selected', String(t === tab)));
+  $$('.tabpanel').forEach(p => p.classList.toggle('active', p.id === 'panel-' + tab.dataset.tab));
+}));
+
+/* ---------- practice mode ---------- */
+function updatePracticeUI(){
+  $('#practiceBox').classList.toggle('is-hidden', !practice.on);
+  $('#btnPractice').setAttribute('aria-pressed', String(practice.on));
+  $('#btnPractice').textContent = practice.on ? '■ Stop practice' : '★ Practice mode';
+  $('#practiceScore').textContent = practice.score;
+  $('#practiceTarget').textContent = practice.target ? practice.target.lcd : '✔ Correct!';
+  const hintBox = $('#practiceHint');
+  hintBox.classList.toggle('is-hidden', !(practice.hint && practice.target));
+  if (practice.hint && practice.target){
+    hintBox.innerHTML = `<span class="pat">${FINGER_DEFS.map((f, i) => `<span class="pdot ${practice.target.code[i] === '1' ? 'on' : ''}">${f.short}</span>`).join('')}</span>`;
+  }
+}
+function nextPractice(){
+  let pick;
+  do { pick = DICTIONARY[Math.floor(Math.random() * DICTIONARY.length)]; } while (pick === practice.last && DICTIONARY.length > 1);
+  practice.last = pick; practice.target = pick; practice.hint = false;
+  fingerModels.forEach(f => { f.active = false; });
+  Speech.cancel();
+  evaluate(performance.now());
+  updatePracticeUI();
+}
+$('#btnPractice').addEventListener('click', () => {
+  if (practice.on){ practice.on = false; practice.target = null; updatePracticeUI(); return; }
+  practice.on = true; practice.score = 0;
+  nextPractice();
+  toast('Practice mode: build the requested sign on the glove');
+});
+$('#btnHint').addEventListener('click', () => { practice.hint = !practice.hint; updatePracticeUI(); });
+$('#btnSkip').addEventListener('click', () => { if (practice.on) nextPractice(); });
+
+/* ---------- main buttons ---------- */
+$('#btnReset').addEventListener('click', resetGlove);
+$('#btnRepeat').addEventListener('click', repeatWord);
+$('#btnView').addEventListener('click', () => { fitCamera(true); });
+$('#btnVoice').addEventListener('click', ev => {
+  Speech.cfg.enabled = !Speech.cfg.enabled;
+  const b = ev.currentTarget;
+  b.setAttribute('aria-pressed', String(Speech.cfg.enabled));
+  b.textContent = 'Voice: ' + (Speech.cfg.enabled ? 'ON' : 'OFF');
+  if (!Speech.cfg.enabled) Speech.cancel();
+});
+
+/* ---------- LCD theme ---------- */
+function setLcdTheme(theme){
+  $('#lcd').dataset.theme = theme;
+  $('#btnTheme').textContent = 'Backlight: ' + (theme === 'blue' ? 'Blue' : 'Green');
+  $('#lcdThemeSel').value = theme;
+}
+$('#btnTheme').addEventListener('click', () => setLcdTheme($('#lcd').dataset.theme === 'green' ? 'blue' : 'green'));
+$('#lcdThemeSel').addEventListener('change', ev => setLcdTheme(ev.target.value));
+
+/* ---------- speech / sound settings ---------- */
+$('#voiceSel').addEventListener('change', ev => { Speech.cfg.voiceURI = ev.target.value; Speech.speak('Voice selected'); });
+$('#rate').addEventListener('input', ev => { Speech.cfg.rate = Number(ev.target.value); $('#rateVal').textContent = Number(ev.target.value).toFixed(1); });
+$('#volume').addEventListener('input', ev => { Speech.cfg.volume = Number(ev.target.value); $('#volVal').textContent = Math.round(ev.target.value * 100) + '%'; });
+$('#settle').addEventListener('change', ev => { Speech.cfg.settleMs = Number(ev.target.value); });
+$('#sfx').addEventListener('change', ev => { Sfx.on = ev.target.checked; });
+
+/* =====================================================================
+   8. RENDER LOOP
+   ===================================================================== */
+const reduceMotion = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+const clock = new THREE.Clock();
+let frames = 0, fpsAcc = performance.now();
+
+function animate(){
+  requestAnimationFrame(animate);
+  const dt = Math.min(clock.getDelta(), 0.05);
+  const t = clock.elapsedTime;
+
+  fingerModels.forEach(f => f.update(dt, hoverId));
+
+  if (!reduceMotion){
+    glove.position.y = Math.sin(t * 1.2) * 0.08;
+    glove.rotation.y = Math.sin(t * 0.5) * 0.05;
+    ring1.rotation.z = t * 0.25;
+    ring2.rotation.z = -t * 0.4;
+    ring3.rotation.z = t * 0.7;
+    particles.rotation.y = t * 0.02;
+  }
+  mcuLedMat.emissiveIntensity = 1.2 + Math.sin(t * 4) * 0.8;
+
+  palmPulse = Math.max(0, palmPulse - dt * 2.2);
+  const palmHover = hoverId === 'palm' ? 1 : 0;
+  padMat.opacity = Math.min(1, 0.5 + 0.2 * palmHover + 0.5 * palmPulse);
+  padMat.color.setHex(0x22e5ff).lerp(tmpC.setHex(0xffffff), palmPulse);
+  palmMat.emissiveIntensity = 0.5 + 0.35 * palmHover + 0.6 * palmPulse;
+
+  controls.update();
+  renderer.render(scene, camera);
+  updateLabels();
+
+  frames++;
+  const now = performance.now();
+  if (now - fpsAcc >= 500){
+    $('#statFps').textContent = Math.round(frames * 1000 / (now - fpsAcc)) + ' FPS';
+    frames = 0; fpsAcc = now;
+  }
+}
+if (renderer) animate();
+else {
+  // No WebGL: still advance finger state so UI stays consistent.
+  let last = performance.now();
+  setInterval(() => { const n = performance.now(); fingerModels.forEach(f => f.update((n - last) / 1000, null)); last = n; }, 100);
+}
+
+/* =====================================================================
+   9. BOOT
+   ===================================================================== */
+renderDictionary();
+renderLog();
+Speech.init();
+updateHud('00000', null);
+updatePracticeUI();
+lcd.print(0, 'SIGNGLOVE V1.0', { type: true, speed: 40 });
+lcd.print(1, 'INITIALISING...', { type: true, speed: 30 });
+hintEl.textContent = 'Booting translator…';
+setTimeout(() => {
+  lcd.show('READY', 'TAP THE GLOVE');
+  updateHint('00000', null);
+}, 1500);
+</script>
+</body>
+</html>
