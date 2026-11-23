@@ -412,12 +412,28 @@
 <script type="importmap">
 {
   "imports": {
-    "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
-    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+    "three": "./vendor/three.module.js",
+    "three/addons/": "./vendor/addons/"
   }
 }
 </script>
 
+<script>
+/* Boot watchdog: if the module below fails to load/parse, surface a visible
+   error instead of leaving the 3D panel blank and the dictionary at 0. */
+window.__gloveBooted = false;
+window.addEventListener('load', function () {
+  setTimeout(function () {
+    if (!window.__gloveBooted) {
+      var el = document.getElementById('gloveBootErr');
+      if (el) el.classList.remove('is-hidden');
+    }
+  }, 8000);
+});
+</script>
+<div id="gloveBootErr" class="is-hidden" style="position:fixed;left:50%;bottom:18px;transform:translateX(-50%);z-index:60;background:#1a0b2e;border:1px solid #ff2e9a;color:#e2e8f0;font:13px/1.5 monospace;padding:12px 18px;border-radius:12px;max-width:92vw;text-align:center;">
+  The 3D module failed to start (three.js could not be loaded). Check your connection and reload the page.
+</div>
 <script type="module">
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
@@ -1414,6 +1430,7 @@ updatePracticeUI();
 lcd.print(0, 'SIGNGLOVE V1.0', { type: true, speed: 40 });
 lcd.print(1, 'INITIALISING...', { type: true, speed: 30 });
 hintEl.textContent = 'Booting translator…';
+window.__gloveBooted = true;
 setTimeout(() => {
   lcd.show('READY', 'TAP THE GLOVE');
   updateHint('00000', null);
